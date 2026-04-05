@@ -1,4 +1,4 @@
-name: 全球并购破产重组早报
+name: 并购破产重组早报(国内源)
 on:
   schedule:
     - cron: '0 0 * * *'
@@ -8,42 +8,45 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 抓取新闻
+      - name: 抓取国内财经新闻
         run: |
           cat > news.py << EOF
           import requests
           from datetime import datetime
+          import xml.etree.ElementTree as ET
+          import re
 
-          keywords = [
-              "并购", "合并", "破产", "重整", "重组", "拆分", "收购"
+          # 国内可直接访问的权威财经RSS
+          rss_list = [
+              "https://finance.sina.com.cn/rss/finance.xml",
+              "https://www.yicai.com/rss/toutiao.xml",
+              "https://www.thepaper.cn/feed_rss.html",
+              "https://www.cnforex.com/rss.aspx?id=2"
           ]
 
-          news_list = []
+          # 只保留并购/破产/重组相关新闻
+          keywords = ["并购", "收购", "重组", "破产", "重整", "拆分", "分拆", "合并"]
+          news = []
 
-          for kw in keywords:
+          for rss in rss_list:
               try:
-                  url = f"https://news.google.com/rss/search?q={kw}&hl=zh-CN&gl=CN"
-                  r = requests.get(url, timeout=10)
-                  text = r.text
-                  items = text.split("<item>")
-                  for item in items[1:6]:
-                      try:
-                          title = item.split("<title>")[1].split("</title>")[0]
-                          # 关键：自动生成国内可打开的百度链接
-                          domestic_url = f"https://news.baidu.com/news?word={title}"
-                          news_list.append(f"• {title}\n{domestic_url}")
-                      except:
-                          continue
+                  res = requests.get(rss, timeout=10, headers={"User-Agent":"Mozilla/5.0"})
+                  root = ET.fromstring(res.content)
+                  for item in root.findall(".//item"):
+                      title = item.find("title").text
+                      link = item.find("link").text
+                      if any(k in title for k in keywords):
+                          news.append(f"• {title}\n{link}")
               except:
                   continue
 
-          news_list = list(dict.fromkeys(news_list))[:30]
+          news = list(dict.fromkeys(news))[:30]
           date_str = datetime.now().strftime("%Y-%m-%d")
 
           SCKEY = "SCT334015TjyKtNeAukyNnmDI1jJCcLgqt"
           requests.post(f"https://sctapi.ftqq.com/{SCKEY}.send", data={
               "title": f"【并购/破产/重组早报 {date_str}】",
-              "desp": "\n\n".join(news_list)
+              "desp": "\n\n".join(news) if news else "今日暂无相关新闻"
           })
           EOF
 
