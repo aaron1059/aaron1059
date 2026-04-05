@@ -1,4 +1,4 @@
-name: 全球并购破产重组早报（双链接版）
+name: 全球并购破产重组早报（微信原生双链接）
 on:
   schedule:
     - cron: '0 0 * * *'
@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 抓取新闻（双链接）
+      - name: 抓取新闻（微信可点开）
         run: |
           cat > news.py << EOF
           import requests
@@ -31,15 +31,14 @@ jobs:
                       try:
                           title = item.split("<title>")[1].split("</title>")[0]
                           google_link = item.split("<link>")[1].split("</link>")[0]
-                          
-                          # 国内：微信公众号搜索链接
                           quoted = urllib.parse.quote(title)
-                          wechat_news_link = f"https://mp.weixin.qq.com/mp/search?action=search&type=0&query={quoted}"
-                          
-                          # 国内：微信视频号搜索链接
-                          wechat_video_link = f"https://channels.weixin.qq.com/mobile/search?query={quoted}"
-                          
-                          news_list.append(f"• {title}\n📱 微信新闻：{wechat_news_link}\n🎥 微信视频：{wechat_video_link}\n🌍 Google原文：{google_link}")
+
+                          # ✅ 国内：微信原生话题（#标题）→ 微信内直接点开
+                          wechat_news = f"https://weixin.sogou.com/weixin?type=2&query={quoted}"
+                          wechat_topic = f"# {title}"  # 微信聊天点 #话题 直接打开
+
+                          # ✅ 境外：Google原文
+                          news_list.append(f"• {title}\n📱 微信新闻：{wechat_news}\n🔍 {wechat_topic}\n🌍 Google：{google_link}")
                       except:
                           continue
               except:
