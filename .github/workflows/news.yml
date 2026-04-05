@@ -1,4 +1,4 @@
-name: 并购破产重组早报
+name: 全球并购破产重组早报
 on:
   schedule:
     - cron: '0 0 * * *'
@@ -15,27 +15,40 @@ jobs:
           from datetime import datetime
           import urllib.parse
 
-          keywords = ["并购", "收购", "重组", "破产", "重整", "合并", "拆分"]
+          keywords = [
+              "并购", "合并", "收购", "破产", "重整", "重组", "拆分", "分拆"
+          ]
+
           news_list = []
 
           for kw in keywords:
               try:
-                  q = urllib.parse.quote(kw)
-                  url = f"https://news.sogou.com/news?query={q}"
-                  news_list.append(f"• {kw}\n{url}")
+                  url = f"https://news.google.com/rss/search?q={kw}&hl=zh-CN&gl=CN"
+                  r = requests.get(url, timeout=10)
+                  text = r.text
+                  items = text.split("<item>")
+                  for item in items[1:11]:
+                      try:
+                          title = item.split("<title>")[1].split("</title>")[0]
+                          quoted = urllib.parse.quote(title)
+                          domestic_link = f"https://news.sogou.com/news?query={quoted}"
+                          news_list.append(f"• {title}\n{domestic_link}")
+                      except:
+                          continue
               except:
                   continue
 
+          news_list = list(dict.fromkeys(news_list))[:30]
           date_str = datetime.now().strftime("%Y-%m-%d")
 
           SCKEY = "SCT334015TjyKtNeAukyNnmDI1jJCcLgqt"
           requests.post(f"https://sctapi.ftqq.com/{SCKEY}.send", data={
               "title": f"【并购/破产/重组早报 {date_str}】",
-              "desp": "\n\n".join(news_list)
+              "desp": "\n\n".join(news_list) if news_list else "今日暂无相关新闻"
           })
           EOF
 
-      - name: 运行
+      - name: 运行脚本
         run: |
           pip install requests
           python news.py
