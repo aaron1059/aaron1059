@@ -1,0 +1,13 @@
+name: 育碧/PDD/TEMU新闻
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install requests
+      - run: python3 .github/workflows/news_ubi.py
