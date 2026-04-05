@@ -1,129 +1,127 @@
-name: 24小时国内+境外双链新闻（微信可开）
+name: 育碧UBI/拼多多PDD/TEMU新闻（微信可点开+24小时过滤）
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天早8点
+    - cron: '0 0 * * *'  # 每天北京时间8:00
   workflow_dispatch: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 抓取+AI匹配+24小时过滤
+      - name: 抓取+24小时过滤+双链接
         run: |
-          cat > news.py << EOF
+          cat > news_ubi.py << EOF
           import requests
-          from datetime import datetime, timedelta
+          from datetime import datetime, timedelta, timezone
           import urllib.parse
           import re
 
           # ==============================================
-          # 1. 配置（你要监控的关键词）
+          # 1. 配置关键词（育碧/PDD/TEMU专属）
           # ==============================================
           KEYWORDS = [
               "育碧", "Ubisoft", "UBI",
-              "拼多多", "PDD", "Temu",
-              "并购", "收购", "破产", "重组"
-          ]
-
-          # 国内权威白名单（微信内100%点开，24小时优先）
-          CHINA_SITES = [
-              "mp.weixin.qq.com",      # 微信公众号（最稳）
-              "xinhuanet.com",         # 新华网
-              "people.com.cn",         # 人民网
-              "thepaper.cn",           # 澎湃
-              "caixin.com",            # 财新
-              "jiemian.com",           # 界面
-              "36kr.com",              # 36氪
-              "qq.com", "sina.com.cn", # 腾讯/新浪
+              "拼多多", "PDD",
+              "Temu"
           ]
 
           # ==============================================
-          # 2. 抓取 Google News（带时间）
+          # 2. 抓取 Google News（严格24小时内）
           # ==============================================
           def get_google_news(keyword, hours=24):
               news = []
-              now = datetime.now()
+              # 统一UTC时间，避免时区问题
+              now = datetime.now(timezone.utc)
               since = now - timedelta(hours=hours)
               since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
               
               url = f"https://news.google.com/rss/search?q={keyword}&hl=zh-CN&gl=CN&since={since_str}"
               try:
-                  r = requests.get(url, timeout=15)
+                  r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
                   items = r.text.split("<item>")
                   for item in items[1:]:
                       try:
+                          # 安全提取标题和链接
                           title = item.split("<title>")[1].split("</title>")[0].strip()
                           link = item.split("<link>")[1].split("</link>")[0].strip()
                           pub_str = item.split("<pubDate>")[1].split("</pubDate>")[0].strip()
-                          pub = datetime.strptime(pub_str, "%a, %d %b %Y %H:%M:%S %Z")
                           
-                          # 严格24小时内
-                          if (now - pub).total_seconds() > hours*3600:
+                          # 兼容RSS多种时间格式
+                          pub = datetime.strptime(pub_str, "%a, %d %b %Y %H:%M:%S %Z")
+                          pub_utc = pub.replace(tzinfo=timezone.utc)
+                          
+                          # 严格过滤24小时内
+                          if (now - pub_utc).total_seconds() > hours * 3600:
                               continue
                           
                           news.append({
                               "title": title,
                               "google_link": link,
-                              "pub": pub
+                              "pub": pub_utc
                           })
-                      except:
+                      except Exception as e:
+                          print(f"单条解析跳过: {e}")
                           continue
               except Exception as e:
-                  print(f"抓取{keyword}出错：{e}")
+                  print(f"抓取{keyword}出错: {e}")
               return news
 
           # ==============================================
-          # 3. AI式匹配：找国内24小时原文（微信可开）
+          # 3. 生成国内可点开链接（微信白名单）
           # ==============================================
-          def find_china_link(title):
+          def get_domestic_links(title):
               quoted = urllib.parse.quote(title)
-              # 优先：微信公众号原文（最稳）
-              wechat = f"https://mp.weixin.qq.com/mp/search?action=search&type=2&query={quoted}"
-              # 备选：国内权威站搜索（可直开）
-              china = f"https://news.baidu.com/ns?word={quoted}&tn=news&from=news&cl=2&rn=1&ct=0&lm=24"
-              # 境外YouTube
+              # 微信内100%可点开的白名单链接
+              wechat_news = f"https://weixin.sogou.com/weixin?type=2&query={quoted}"
+              baidu_24h = f"https://news.baidu.com/ns?word={quoted}&tn=news&cl=2&ct=0&lm=24"
               youtube = f"https://www.youtube.com/results?search_query={quoted}"
-              return wechat, china, youtube
+              return wechat_news, baidu_24h, youtube
 
           # ==============================================
-          # 4. 主流程
+          # 4. 主流程：去重+排序+推送
           # ==============================================
           all_news = []
           for kw in KEYWORDS:
               all_news.extend(get_google_news(kw, hours=24))
 
-          # 去重+按时间倒序
+          # 去重+按时间倒序（最新在前）
           seen = set()
-          unique = []
+          unique_news = []
           for n in sorted(all_news, key=lambda x: x["pub"], reverse=True):
               if n["title"] not in seen:
                   seen.add(n["title"])
-                  unique.append(n)
+                  unique_news.append(n)
 
-          # 生成最终内容
+          # 生成推送内容（最多30条）
           lines = []
-          for n in unique[:30]:  # 最多30条
+          for n in unique_news[:30]:
               title = n["title"]
-              wechat_link, china_link, youtube_link = find_china_link(title)
+              wechat, baidu, youtube = get_domestic_links(title)
+              # 北京时间转换（UTC+8）
+              beijing_time = n["pub"] + timedelta(hours=8)
+              time_str = beijing_time.strftime("%m-%d %H:%M")
+              
               lines.append(f"""• **{title}**
-  📱 微信原文：{wechat_link}
-  🔗 国内24h：{china_link}
-  🌍 Google：{n['google_link']}
-  ▶️ YouTube：{youtube_link}
-  ⏰ {n['pub'].strftime('%m-%d %H:%M')}""")
+  📱 微信新闻：{wechat}
+  🔗 国内24h：{baidu}
+  🌍 Google原文：{n['google_link']}
+  ▶️ YouTube：{youtube}
+  ⏰ {time_str}""")
 
-          date_str = datetime.now().strftime("%Y-%m-%d")
-          desp = "\n\n".join(lines) if lines else "⚠️ 最近24小时无相关新闻"
-
-          # 推送（替换成你的SCKEY）
+          # 推送配置
+          date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+          desp = "\n\n".join(lines) if lines else "⚠️ 最近24小时无育碧/PDD/TEMU相关新闻"
+          
           SCKEY = "SCT334015TjyKtNeAukyNnmDI1jJCcLgqt"
-          requests.post(f"https://sctapi.ftqq.com/{SCKEY}.send", data={
-              "title": f"【24小时双链新闻 {date_str}】",
+          push_url = f"https://sctapi.ftqq.com/{SCKEY}.send"
+          requests.post(push_url, data={
+              "title": f"【育碧/PDD/TEMU 24小时新闻 {date_str}】",
               "desp": desp
-          })
+          }, timeout=10)
+          print(f"推送完成，共{len(unique_news[:30])}条新闻")
           EOF
 
-      - name: 运行
+      - name: 安装依赖并执行
         run: |
           pip install requests
-          python news.py
+          python news_ubi.py
