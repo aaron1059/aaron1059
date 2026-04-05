@@ -1,0 +1,56 @@
+name: 育碧UBI/拼多多PDD/TEMU新闻
+on:
+  schedule:
+    - cron: '0 0 * * *'   # 每天早上8点
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 抓取新闻
+        run: |
+          cat > news_ubi.py << EOF
+          import requests
+          from datetime import datetime
+
+          keywords = [
+              "育碧", "Ubisoft", "UBI",
+              "拼多多", "PDD",
+              "Temu"
+          ]
+
+          news_list = []
+
+          for kw in keywords:
+              try:
+                  url = f"https://news.google.com/rss/search?q={kw}&hl=zh-CN&gl=CN"
+                  r = requests.get(url, timeout=10)
+                  text = r.text
+                  items = text.split("<item>")
+                  for item in items[1:6]:
+                      try:
+                          title = item.split("<title>")[1].split("</title>")[0]
+                          link = item.split("<link>")[1].split("</link>")[0]
+                          news_list.append(f"• {title}\n{link}")
+                      except:
+                          continue
+              except:
+                  continue
+
+          news_list = sorted(list(set(news_list)))[:30]
+
+          date_str = datetime.now().strftime("%Y-%m-%d")
+          title = f"【育碧/PDD/TEMU新闻 {date_str}】"
+          desp = "\n\n".join(news_list)
+
+          SCKEY = "SCT334015TjyKtNeAukyNnmDI1jJCcLgqt"
+          requests.post(f"https://sctapi.ftqq.com/{SCKEY}.send", data={
+              "title": title, "desp": desp
+          })
+          EOF
+
+      - name: 运行脚本
+        run: |
+          pip install requests
+          python news_ubi.py
