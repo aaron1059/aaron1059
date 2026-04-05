@@ -1,18 +1,19 @@
-name: 育碧UBI/拼多多PDD/TEMU新闻
+name: 育碧UBI/拼多多PDD/TEMU新闻（微信原生双链接）
 on:
   schedule:
-    - cron: '0 0 * * *'   # 每天早上8点
+    - cron: '0 0 * * *'
   workflow_dispatch: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 抓取新闻
+      - name: 抓取新闻（微信可点开+境外双链接）
         run: |
           cat > news_ubi.py << EOF
           import requests
           from datetime import datetime
+          import urllib.parse
 
           keywords = [
               "育碧", "Ubisoft", "UBI",
@@ -28,25 +29,33 @@ jobs:
                   r = requests.get(url, timeout=10)
                   text = r.text
                   items = text.split("<item>")
-                  for item in items[1:6]:
+                  for item in items[1:11]:
                       try:
                           title = item.split("<title>")[1].split("</title>")[0]
-                          link = item.split("<link>")[1].split("</link>")[0]
-                          news_list.append(f"• {title}\n{link}")
+                          google_link = item.split("<link>")[1].split("</link>")[0]
+                          quoted = urllib.parse.quote(title)
+
+                          # ✅ 国内：微信可直接打开（搜狗微信+#话题）
+                          wechat_news = f"https://weixin.sogou.com/weixin?type=2&query={quoted}"
+                          wechat_topic = f"# {title}"
+                          wechat_video = f"https://v.qq.com/search?query={quoted}"  # 微信内秒开
+
+                          # ✅ 境外：Google + YouTube
+                          youtube = f"https://www.youtube.com/results?search_query={quoted}"
+
+                          news_list.append(f"• {title}\n📱 微信：{wechat_news}\n🔍 {wechat_topic}\n🎥 视频：{wechat_video}\n🌍 Google：{google_link}\n▶️ YouTube：{youtube}")
                       except:
                           continue
               except:
                   continue
 
-          news_list = sorted(list(set(news_list)))[:30]
-
+          news_list = list(dict.fromkeys(news_list))[:30]
           date_str = datetime.now().strftime("%Y-%m-%d")
-          title = f"【育碧/PDD/TEMU新闻 {date_str}】"
-          desp = "\n\n".join(news_list)
 
           SCKEY = "SCT334015TjyKtNeAukyNnmDI1jJCcLgqt"
           requests.post(f"https://sctapi.ftqq.com/{SCKEY}.send", data={
-              "title": title, "desp": desp
+              "title": f"【育碧/PDD/TEMU新闻 {date_str}】",
+              "desp": "\n\n".join(news_list) if news_list else "今日暂无相关新闻"
           })
           EOF
 
