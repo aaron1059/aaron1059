@@ -3,66 +3,85 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 import re
 
+# 配置
 SCKEY = "SCT334015TjyKtNeAukyNnmDI1jJCcLgqt"
 KEYWORDS = ["育碧", "Ubisoft", "UBI", "拼多多", "PDD", "Temu"]
 HOURS = 24
 MAX_NEWS = 8
 
-def clean_html(html_text):
-    """強力清洗 HTML 代碼，只留純文字"""
-    # 1. 去除 <a> 標籤但保留文字
-    html_text = re.sub(r'<a\s+[^>]*>', '', html_text)
-    html_text = re.sub(r'</a>', '', html_text)
-    # 2. 去除 <font> 標籤
-    html_text = re.sub(r'<font\s+[^>]*>', '', html_text)
-    html_text = re.sub(r'</font>', '', html_text)
-    # 3. 去除其他 HTML 標籤
-    html_text = re.sub(r'<.*?>', '', html_text)
-    # 4. 去除轉義字符 (&nbsp; 等)
-    html_text = re.sub(r'&[a-z]+;', ' ', html_text)
-    # 5. 去除多餘空格
-    html_text = re.sub(r'\s+', ' ', html_text)
-    return html_text.strip()
+# ==============================================
+# 终极HTML清洗函数：多层暴力清除所有标签和转义
+# ==============================================
+def clean_html(raw_html):
+    # 1. 先处理所有HTML实体（&nbsp; &gt; 等）
+    clean_text = re.sub(r'&[a-zA-Z0-9#]+;', ' ', raw_html)
+    # 2. 清除所有<a>标签（包含href属性）
+    clean_text = re.sub(r'<a\s+[^>]*>', '', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'</a>', '', clean_text, flags=re.IGNORECASE)
+    # 3. 清除所有<font>标签
+    clean_text = re.sub(r'<font\s+[^>]*>', '', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'</font>', '', clean_text, flags=re.IGNORECASE)
+    # 4. 清除所有其他HTML标签（通用匹配）
+    clean_text = re.sub(r'<[^>]+>', '', clean_text)
+    # 5. 清除多余的空格、换行
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+    return clean_text
 
+# ==============================================
+# 标题清洗：去除末尾的 "- 来源域名"
+# ==============================================
+def clean_title(raw_title):
+    # 匹配末尾的 "- xxx.com" 格式并删除
+    clean_title = re.sub(r'\s*-\s*[\w\.]+\.com\s*$', '', raw_title)
+    return clean_title.strip()
+
+# ==============================================
+# 获取24小时内Google新闻
+# ==============================================
 def get_google_news(keyword):
     news = []
     now = datetime.now(timezone.utc)
     since_str = (now - timedelta(hours=HOURS)).strftime("%Y-%m-%dT%H:%M:%SZ")
     
-    # 注意：Google News RSS 雖然 since 參數有效，但數據仍可能混雜舊聞，
-    # 這是官方 API 限制，我們在後續邏輯進一步過濾
     url = f"https://news.google.com/rss/search?q={urllib.parse.quote(keyword)}&hl=zh-CN&gl=CN&since={since_str}"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
     
     try:
         r = requests.get(url, headers=headers, timeout=15)
+        r.raise_for_status()
         items = r.text.split("<item>")
+        
         for item in items[1:]:
             try:
-                title = item.split("<title>")[1].split("</title>")[0].strip()
-                desc_raw = item.split("<description>")[1].split("</description>")[0].strip()
-                desc_clean = clean_html(desc_raw) # 清洗乾淨
+                # 提取并清洗标题
+                raw_title = item.split("<title>")[1].split("</title>")[0].strip()
+                clean_title_text = clean_title(raw_title)
                 
-                # 過濾：標題過短、內容過短、或無意義的新聞
-                if len(title) > 10 and len(desc_clean) > 20:
+                # 提取并清洗描述
+                raw_desc = item.split("<description>")[1].split("</description>")[0].strip()
+                clean_desc_text = clean_html(raw_desc)
+                
+                # 过滤无效内容
+                if len(clean_title_text) > 10 and len(clean_desc_text) > 20:
                     news.append({
-                        "title": title,
-                        "desc": desc_clean
+                        "title": clean_title_text,
+                        "desc": clean_desc_text
                     })
-            except Exception as e:
-                # print(f"解析跳過: {e}")
+            except Exception:
                 continue
-    except Exception as e:
-        # print(f"抓取失敗: {e}")
+    except Exception:
         pass
     return news
 
+# ==============================================
+# 主程序
+# ==============================================
 if __name__ == "__main__":
     all_news = []
     for kw in KEYWORDS:
         all_news.extend(get_google_news(kw))
 
-    # 1. 嚴格去重：標題一樣直接刪
+    # 1. 严格去重：标题完全一致则过滤
     seen_titles = set()
     unique_news = []
     for n in all_news:
@@ -70,33 +89,27 @@ if __name__ == "__main__":
             seen_titles.add(n["title"])
             unique_news.append(n)
 
-    # 2. 防止數據過多，截取最大數量
+    # 2. 限制最大条数
     unique_news = unique_news[:MAX_NEWS]
 
-    # 3. 生成乾淨的文字內容
+    # 3. 生成推送内容
     lines = []
     for n in unique_news:
-        # 這裡直接呈現清洗後的純文字，沒有任何 HTML
-        lines.append(f"【新聞標題】{n['title']}\n【新聞內容】{n['desc']}\n")
+        lines.append(f"【新闻标题】{n['title']}\n【新闻内容】{n['desc']}\n")
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    
-    # 如果沒有新聞，顯示提示
-    if not lines:
-        desp = "⚠️ 過去24小時內未抓取到相關新聞。"
-    else:
-        desp = "\n\n--------------------------------------------------\n\n".join(lines)
+    desp = "\n\n--------------------------------------------------\n\n".join(lines) if lines else "⚠️ 过去24小时无相关新闻"
 
     # 4. 推送微信
     try:
         requests.post(
             f"https://sctapi.ftqq.com/{SCKEY}.send",
             data={
-                "title": f"【純文字】育碧/PDD/TEMU 熱點 {today}",
+                "title": f"【纯文字无码】育碧/PDD/TEMU 新闻 {today}",
                 "desp": desp
             },
             timeout=15
         )
-        print("✅ 推送完成，已去除HTML格式")
+        print("✅ 推送成功，已完成HTML全清洗+去重")
     except Exception as e:
-        print(f"❌ 推送失敗: {e}")
+        print(f"❌ 推送失败: {str(e)}")
