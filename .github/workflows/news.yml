@@ -1,65 +1,53 @@
 name: 全球并购破产重组早报
 on:
   schedule:
-    - cron: '0 0 * * *'  # UTC 0:00 = 北京时间 8:00
+    - cron: '0 0 * * *'
   workflow_dispatch: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 生成新闻抓取脚本
+      - name: 抓取新闻
         run: |
           cat > news.py << EOF
           import requests
           from datetime import datetime
 
-          # 核心关键词：并购/合并/破产/重整/拆分/重组（中英文全覆盖）
           keywords = [
-              "并购", "合并", "破产", "重整", "拆分", "重组",
-              "mergers acquisitions", "M&A", "bankruptcy", "restructuring", "spin-off", "divestiture"
+              "并购", "合并", "破产", "重整", "重组", "拆分", "收购"
           ]
 
           news_list = []
 
-          # 遍历关键词，抓取 Google News RSS 源
           for kw in keywords:
               try:
-                  url = f"https://news.google.com/rss/search?q={kw}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+                  url = f"https://news.google.com/rss/search?q={kw}&hl=zh-CN&gl=CN"
                   r = requests.get(url, timeout=10)
                   text = r.text
                   items = text.split("<item>")
-                  # 每个关键词取前5条，避免内容过多
                   for item in items[1:6]:
                       try:
                           title = item.split("<title>")[1].split("</title>")[0]
-                          link = item.split("<link>")[1].split("</link>")[0]
-                          news_list.append(f"• {title}\n{link}")
+                          # 关键：自动生成国内可打开的百度链接
+                          domestic_url = f"https://news.baidu.com/news?word={title}"
+                          news_list.append(f"• {title}\n{domestic_url}")
                       except:
                           continue
-              except Exception as e:
-                  print(f"关键词 {kw} 抓取失败: {e}")
+              except:
                   continue
 
-          # 去重 + 取前10条，保证推送简洁
-          news_list = list(dict.fromkeys(news_list))[:10]
-
-          # 生成推送内容
+          news_list = list(dict.fromkeys(news_list))[:30]
           date_str = datetime.now().strftime("%Y-%m-%d")
-          push_title = f"【全球并购/破产/重组早报 {date_str}】"
-          push_content = "\n\n".join(news_list) if news_list else "今日暂无相关新闻"
 
-          # Server酱推送（你的SendKey已填好）
           SCKEY = "SCT334015TjyKtNeAukyNnmDI1jJCcLgqt"
-          push_url = f"https://sctapi.ftqq.com/{SCKEY}.send"
-          requests.post(push_url, data={
-              "title": push_title,
-              "desp": push_content
+          requests.post(f"https://sctapi.ftqq.com/{SCKEY}.send", data={
+              "title": f"【并购/破产/重组早报 {date_str}】",
+              "desp": "\n\n".join(news_list)
           })
-          print("推送完成")
           EOF
 
-      - name: 安装依赖并执行脚本
+      - name: 运行
         run: |
           pip install requests
           python news.py
